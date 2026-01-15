@@ -4,7 +4,7 @@ from .. import models
 from datetime import datetime
 import io
 
-def process_csv_and_ingest(file_content: bytes, db: Session):
+def process_csv_and_ingest(file_content: bytes, db: Session, dataset_type: str = "enrolment"):
     try:
         # Read CSV
         df = pd.read_csv(io.BytesIO(file_content))
@@ -13,54 +13,56 @@ def process_csv_and_ingest(file_content: bytes, db: Session):
         df.columns = df.columns.str.strip()
         
         # Mapping CSV columns to DB columns
-        # Expected: Date, State, District, Pincode, Demo_age_5_17, Demo_age_17+
-        # DB: date, state, district, pincode, demo_age_5_17, demo_age_17_plus
-        
         column_map = {
-            "Date": "date",
-            "State": "state",
-            "District": "district",
-            "Pincode": "pincode",
-            "Demo_age_5_17": "demo_age_5_17",
-            "Demo_age_17+": "demo_age_17_plus",
-            # New format support
             "date": "date",
             "state": "state",
             "district": "district",
             "pincode": "pincode",
-            "age_0_5": "demo_age_0_5",
-            "age_5_17": "demo_age_5_17",
-            "age_18_greater": "demo_age_17_plus",
-            # Another format variation
-            "demo_age_17_": "demo_age_17_plus"
+            # Enrolment
+            "age_0_5": "age_0_5",
+            "age_5_17": "age_5_17",
+            "age_18_greater": "age_17_plus",
+            # Demographic
+            "demo_age_5_17": "demo_age_5_17",
+            "demo_age_17_": "demo_age_17_plus",
+            # Biometric
+            "bio_age_5_17": "bio_age_5_17",
+            "bio_age_17_": "bio_age_17_plus"
         }
-        
-        # Renaissance checks / renaming
-        # Check if columns exist, if not try case insensitive search
         
         df = df.rename(columns=column_map)
         
         # Drop rows where critical fields are null
         df = df.dropna(subset=['date', 'state', 'district'])
         
+        # Determine model and numeric columns based on dataset_type
+        if dataset_type == "enrolment":
+            model = models.EnrolmentData
+            numeric_cols = ['age_0_5', 'age_5_17', 'age_17_plus']
+        elif dataset_type == "demographic":
+            model = models.DemographicUpdate
+            numeric_cols = ['demo_age_5_17', 'demo_age_17_plus']
+        elif dataset_type == "biometric":
+            model = models.BiometricUpdate
+            numeric_cols = ['bio_age_5_17', 'bio_age_17_plus']
+        else:
+            raise ValueError(f"Invalid dataset type: {dataset_type}")
+            
         # Fill numeric nulls with 0
-        numeric_cols = ['demo_age_0_5', 'demo_age_5_17', 'demo_age_17_plus']
         for col in numeric_cols:
             if col not in df.columns:
                 df[col] = 0
             df[col] = df[col].fillna(0)
         
         # Date parsing
-        # Assuming format might vary, but standard is usually YYYY-MM-DD or DD-MM-YYYY
-        # We will use pd.to_datetime with infer_datetime_format and dayfirst=True to handle DD-MM-YYYY
         df['date'] = pd.to_datetime(df['date'], errors='coerce', dayfirst=True)
-        df = df.dropna(subset=['date']) # Drop invalid dates
+        df = df.dropna(subset=['date']) 
         
         # Convert to dictionary records
         records = df.to_dict(orient='records')
         
         # Bulk Insert
-        db.bulk_insert_mappings(models.EnrolmentData, records)
+        db.bulk_insert_mappings(model, records)
         db.commit()
         
         return len(records)

@@ -3,87 +3,171 @@ from sqlalchemy import func, desc
 from .. import models
 import pandas as pd
 
-def get_overall_summary(db: Session):
-    total_enrolments = db.query(
-        func.sum(models.EnrolmentData.demo_age_0_5 + models.EnrolmentData.demo_age_5_17 + models.EnrolmentData.demo_age_17_plus)
-    ).scalar() or 0
-    
-    total_0_5 = db.query(func.sum(models.EnrolmentData.demo_age_0_5)).scalar() or 0
-    total_5_17 = db.query(func.sum(models.EnrolmentData.demo_age_5_17)).scalar() or 0
-    total_17_plus = db.query(func.sum(models.EnrolmentData.demo_age_17_plus)).scalar() or 0
-    
-    # Top state by enrolment
-    top_state = db.query(
-        models.EnrolmentData.state,
-        func.sum(models.EnrolmentData.demo_age_0_5 + models.EnrolmentData.demo_age_5_17 + models.EnrolmentData.demo_age_17_plus).label("total")
-    ).group_by(models.EnrolmentData.state).order_by(desc("total")).first()
-    
-    return {
-        "total_enrolments": total_enrolments,
-        "total_0_5": total_0_5,
-        "total_5_17": total_5_17,
-        "total_17_plus": total_17_plus,
-        "top_state": top_state[0] if top_state else "N/A"
-    }
+def get_model(dataset_type: str):
+    if dataset_type == "enrolment":
+        return models.EnrolmentData, [models.EnrolmentData.age_0_5, models.EnrolmentData.age_5_17, models.EnrolmentData.age_17_plus]
+    elif dataset_type == "demographic":
+        return models.DemographicUpdate, [models.DemographicUpdate.demo_age_5_17, models.DemographicUpdate.demo_age_17_plus]
+    elif dataset_type == "biometric":
+        return models.BiometricUpdate, [models.BiometricUpdate.bio_age_5_17, models.BiometricUpdate.bio_age_17_plus]
+    else:
+        raise ValueError(f"Invalid dataset type: {dataset_type}")
 
-def get_trends_by_state(db: Session, state: str = None):
+def get_overall_summary(db: Session, dataset_type: str = "enrolment", state: str = None, district: str = None):
+    model, age_cols = get_model(dataset_type)
+    
+    total_val = sum(age_cols)
+    
+    # Base query for totals
+    query = db.query(func.sum(total_val))
+    if state:
+        query = query.filter(model.state == state)
+    if district:
+        query = query.filter(model.district == district)
+        
+    total_sum = query.scalar() or 0
+    
+    summary = {
+        "total_enrolments": total_sum,
+        "top_state": "N/A"
+    }
+    
+    # Sub-queries for age groups need filters too
+    def get_filtered_sum(col):
+        q = db.query(func.sum(col))
+        if state:
+            q = q.filter(model.state == state)
+        if district:
+            q = q.filter(model.district == district)
+        return q.scalar() or 0
+    
+    if dataset_type == "enrolment":
+        summary["total_0_5"] = get_filtered_sum(model.age_0_5)
+        summary["total_5_17"] = get_filtered_sum(model.age_5_17)
+        summary["total_17_plus"] = get_filtered_sum(model.age_17_plus)
+    elif dataset_type == "demographic":
+        summary["total_5_17"] = get_filtered_sum(model.demo_age_5_17)
+        summary["total_17_plus"] = get_filtered_sum(model.demo_age_17_plus)
+        summary["total_0_5"] = 0
+    elif dataset_type == "biometric":
+        summary["total_5_17"] = get_filtered_sum(model.bio_age_5_17)
+        summary["total_17_plus"] = get_filtered_sum(model.bio_age_17_plus)
+        summary["total_0_5"] = 0
+        
+    # Top location logic
+    if state:
+        if district:
+            # If district is selected, it IS the top location
+            summary["top_location"] = district
+            summary["location_label"] = "Selected District"
+        else:
+            # If state is selected, show top district
+            top_district_query = db.query(
+                model.district,
+                func.sum(total_val).label("total")
+            ).filter(model.state == state)
+            
+            top_district = top_district_query.group_by(model.district).order_by(desc("total")).first()
+            summary["top_location"] = top_district[0] if top_district else "N/A"
+            summary["location_label"] = "Top District"
+    else:
+        top_state_query = db.query(
+            model.state,
+            func.sum(total_val).label("total")
+        )
+        top_state = top_state_query.group_by(model.state).order_by(desc("total")).first()
+        summary["top_location"] = top_state[0] if top_state else "N/A"
+        summary["location_label"] = "Top State"
+    
+    return summary
+
+def get_trends_by_state(db: Session, state: str = None, dataset_type: str = "enrolment"):
+    model, age_cols = get_model(dataset_type)
+    total_val = sum(age_cols)
+    
     query = db.query(
-        models.EnrolmentData.date,
-        models.EnrolmentData.state,
-        func.sum(models.EnrolmentData.demo_age_0_5 + models.EnrolmentData.demo_age_5_17 + models.EnrolmentData.demo_age_17_plus).label("count")
+        model.date,
+        model.state,
+        func.sum(total_val).label("count")
     )
     if state:
-        query = query.filter(models.EnrolmentData.state == state)
+        query = query.filter(model.state == state)
         
-    results = query.group_by(models.EnrolmentData.date, models.EnrolmentData.state).all()
-    # Format for chart: [{date: '...', value: ...}]
+    results = query.group_by(model.date, model.state).all()
     return [{"date": r.date, "state": r.state, "enrolments": r.count} for r in results]
 
-def get_trends_by_district(db: Session, district: str = None):
+def get_trends_by_district(db: Session, district: str = None, dataset_type: str = "enrolment"):
+    model, age_cols = get_model(dataset_type)
+    total_val = sum(age_cols)
+    
     query = db.query(
-        models.EnrolmentData.date,
-        models.EnrolmentData.district,
-        func.sum(models.EnrolmentData.demo_age_0_5 + models.EnrolmentData.demo_age_5_17 + models.EnrolmentData.demo_age_17_plus).label("count")
+        model.date,
+        model.district,
+        func.sum(total_val).label("count")
     )
     if district:
-        query = query.filter(models.EnrolmentData.district == district)
+        query = query.filter(model.district == district)
         
-    results = query.group_by(models.EnrolmentData.date, models.EnrolmentData.district).all()
+    results = query.group_by(model.date, model.district).all()
     return [{"date": r.date, "district": r.district, "enrolments": r.count} for r in results]
 
-def get_age_comparison(db: Session):
-    # Overall split
-    total_0_5 = db.query(func.sum(models.EnrolmentData.demo_age_0_5)).scalar() or 0
-    total_5_17 = db.query(func.sum(models.EnrolmentData.demo_age_5_17)).scalar() or 0
-    total_17_plus = db.query(func.sum(models.EnrolmentData.demo_age_17_plus)).scalar() or 0
+def get_age_comparison(db: Session, dataset_type: str = "enrolment", state: str = None, district: str = None):
+    model, age_cols = get_model(dataset_type)
     
-    return {
-        "age_0_5": total_0_5,
-        "age_5_17": total_5_17,
-        "age_17_plus": total_17_plus
-    }
+    def get_filtered_sum(col):
+        q = db.query(func.sum(col))
+        if state:
+            q = q.filter(model.state == state)
+        if district:
+            q = q.filter(model.district == district)
+        return q.scalar() or 0
+    
+    if dataset_type == "enrolment":
+        return {
+            "age_0_5": get_filtered_sum(model.age_0_5),
+            "age_5_17": get_filtered_sum(model.age_5_17),
+            "age_17_plus": get_filtered_sum(model.age_17_plus)
+        }
+    else:
+        # Demographic and Biometric only have 5-17 and 17+
+        prefix = "demo" if dataset_type == "demographic" else "bio"
+        return {
+            "age_0_5": 0,
+            "age_5_17": get_filtered_sum(getattr(model, f"{prefix}_age_5_17")),
+            "age_17_plus": get_filtered_sum(getattr(model, f"{prefix}_age_17_plus"))
+        }
 
-def get_anomalies(db: Session, threshold: int = 10):
-    # Find districts with very low enrolment on specific days
-    results = db.query(
-        models.EnrolmentData.date,
-        models.EnrolmentData.district,
-        (models.EnrolmentData.demo_age_0_5 + models.EnrolmentData.demo_age_5_17 + models.EnrolmentData.demo_age_17_plus).label("total")
-    ).filter(
-        (models.EnrolmentData.demo_age_0_5 + models.EnrolmentData.demo_age_5_17 + models.EnrolmentData.demo_age_17_plus) < threshold
+def get_anomalies(db: Session, threshold: int = 10, dataset_type: str = "enrolment", state: str = None, district: str = None):
+    model, age_cols = get_model(dataset_type)
+    total_val = sum(age_cols)
+    
+    query = db.query(
+        model.date,
+        model.district,
+        total_val.label("total")
+    )
+    
+    # Apply filters
+    if state:
+        query = query.filter(model.state == state)
+    if district:
+        query = query.filter(model.district == district)
+        
+    results = query.filter(
+        total_val < threshold
     ).all()
     
-    return [{"date": r.date, "district": r.district, "total_enrolment": r.total, "type": "Low Enrolment"} for r in results]
+    return [{"date": r.date, "district": r.district, "total_enrolment": r.total, "type": "Low Activity"} for r in results]
 
-def get_unique_states(db: Session):
-    """Get list of unique states in the database"""
-    results = db.query(models.EnrolmentData.state).distinct().filter(models.EnrolmentData.state != None).order_by(models.EnrolmentData.state).all()
+def get_unique_states(db: Session, dataset_type: str = "enrolment"):
+    model, _ = get_model(dataset_type)
+    results = db.query(model.state).distinct().filter(model.state != None).order_by(model.state).all()
     return [r[0] for r in results]
 
-def get_unique_districts(db: Session, state: str = None):
-    """Get list of unique districts in the database (optionally filtered by state)"""
-    query = db.query(models.EnrolmentData.district).distinct().filter(models.EnrolmentData.district != None)
+def get_unique_districts(db: Session, state: str = None, dataset_type: str = "enrolment"):
+    model, _ = get_model(dataset_type)
+    query = db.query(model.district).distinct().filter(model.district != None)
     if state:
-        query = query.filter(models.EnrolmentData.state == state)
-    results = query.order_by(models.EnrolmentData.district).all()
+        query = query.filter(model.state == state)
+    results = query.order_by(model.district).all()
     return [r[0] for r in results]

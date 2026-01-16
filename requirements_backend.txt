@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+pandas
+python-multipart
+pydantic>=2.0
+requests
+python-dotenv
+psycopg2-binary

@@ -13,9 +13,18 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 # Create DB tables
-models.Base.metadata.create_all(bind=database.engine)
+try:
+    print("Initializing database...")
+    models.Base.metadata.create_all(bind=database.engine)
+    print("Database initialization successful.")
+except Exception as e:
+    print(f"Warning: Database initialization failed during import: {e}")
 
 app = FastAPI(title="Aadhar Hackathon API")
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": str(os.getenv("RAILWAY_DEPLOYMENT_ID", "local"))}
 
 # Add CORS middleware
 app.add_middleware(

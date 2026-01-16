@@ -16,43 +16,35 @@ def get_model(dataset_type: str):
 def get_overall_summary(db: Session, dataset_type: str = "enrolment", state: str = None, district: str = None):
     model, age_cols = get_model(dataset_type)
     
-    total_val = sum(age_cols)
+    # Create the aggregation list
+    aggregations = [func.sum(col) for col in age_cols]
     
-    # Base query for totals
-    query = db.query(func.sum(total_val))
+    # Base query for all age groups at once
+    query = db.query(*aggregations)
     if state:
         query = query.filter(model.state == state)
     if district:
         query = query.filter(model.district == district)
         
-    total_sum = query.scalar() or 0
+    results = query.first() or [0] * len(age_cols)
+    results = [r or 0 for r in results] # Handle None results from sum()
+    
+    total_sum = sum(results)
     
     summary = {
         "total_enrolments": total_sum,
         "top_state": "N/A"
     }
     
-    # Sub-queries for age groups need filters too
-    def get_filtered_sum(col):
-        q = db.query(func.sum(col))
-        if state:
-            q = q.filter(model.state == state)
-        if district:
-            q = q.filter(model.district == district)
-        return q.scalar() or 0
-    
     if dataset_type == "enrolment":
-        summary["total_0_5"] = get_filtered_sum(model.age_0_5)
-        summary["total_5_17"] = get_filtered_sum(model.age_5_17)
-        summary["total_17_plus"] = get_filtered_sum(model.age_17_plus)
-    elif dataset_type == "demographic":
-        summary["total_5_17"] = get_filtered_sum(model.demo_age_5_17)
-        summary["total_17_plus"] = get_filtered_sum(model.demo_age_17_plus)
+        summary["total_0_5"] = results[0]
+        summary["total_5_17"] = results[1]
+        summary["total_17_plus"] = results[2]
+    else:
+        # Demographic and Biometric
         summary["total_0_5"] = 0
-    elif dataset_type == "biometric":
-        summary["total_5_17"] = get_filtered_sum(model.bio_age_5_17)
-        summary["total_17_plus"] = get_filtered_sum(model.bio_age_17_plus)
-        summary["total_0_5"] = 0
+        summary["total_5_17"] = results[0]
+        summary["total_17_plus"] = results[1]
         
     # Top location logic
     if state:
@@ -81,7 +73,7 @@ def get_overall_summary(db: Session, dataset_type: str = "enrolment", state: str
     
     return summary
 
-def get_trends_by_state(db: Session, state: str = None, dataset_type: str = "enrolment"):
+def get_trends_by_state(db: Session, state: str = None, dataset_type: str = "enrolment", limit: int = 500):
     model, age_cols = get_model(dataset_type)
     total_val = sum(age_cols)
     
@@ -93,10 +85,10 @@ def get_trends_by_state(db: Session, state: str = None, dataset_type: str = "enr
     if state:
         query = query.filter(model.state == state)
         
-    results = query.group_by(model.date, model.state).all()
+    results = query.group_by(model.date, model.state).order_by(desc(model.date)).limit(limit).all()
     return [{"date": r.date, "state": r.state, "enrolments": r.count} for r in results]
 
-def get_trends_by_district(db: Session, district: str = None, dataset_type: str = "enrolment"):
+def get_trends_by_district(db: Session, district: str = None, dataset_type: str = "enrolment", limit: int = 500):
     model, age_cols = get_model(dataset_type)
     total_val = sum(age_cols)
     
@@ -108,7 +100,7 @@ def get_trends_by_district(db: Session, district: str = None, dataset_type: str 
     if district:
         query = query.filter(model.district == district)
         
-    results = query.group_by(model.date, model.district).all()
+    results = query.group_by(model.date, model.district).order_by(desc(model.date)).limit(limit).all()
     return [{"date": r.date, "district": r.district, "enrolments": r.count} for r in results]
 
 def get_age_comparison(db: Session, dataset_type: str = "enrolment", state: str = None, district: str = None):
@@ -137,7 +129,7 @@ def get_age_comparison(db: Session, dataset_type: str = "enrolment", state: str 
             "age_17_plus": get_filtered_sum(getattr(model, f"{prefix}_age_17_plus"))
         }
 
-def get_anomalies(db: Session, threshold: int = 10, dataset_type: str = "enrolment", state: str = None, district: str = None):
+def get_anomalies(db: Session, threshold: int = 10, dataset_type: str = "enrolment", state: str = None, district: str = None, limit: int = 100):
     model, age_cols = get_model(dataset_type)
     total_val = sum(age_cols)
     
@@ -155,7 +147,7 @@ def get_anomalies(db: Session, threshold: int = 10, dataset_type: str = "enrolme
         
     results = query.filter(
         total_val < threshold
-    ).all()
+    ).order_by(desc(model.date)).limit(limit).all()
     
     return [{"date": r.date, "district": r.district, "total_enrolment": r.total, "type": "Low Activity"} for r in results]
 

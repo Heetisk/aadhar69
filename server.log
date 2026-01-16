@@ -1,0 +1,8 @@
+INFO:     Started server process [10880]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54372 - "POST /sync-api?limit=50&state=Gujarat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54374 - "POST /sync-api?limit=50&district=Surat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54376 - "POST /sync-api?limit=50&state=Gujarat&district=Bhavnagar HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54378 - "GET /summary HTTP/1.1" 200 OK

@@ -15,7 +15,9 @@ st.set_page_config(
 )
 
 # API Configuration
-API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+# BACKEND_URL should be set in .env or streamlit secrets
+BACKEND_URL = os.getenv("BACKEND_URL", os.getenv("API_BASE_URL", "https://aadhar69-production.up.railway.app"))
+API_BASE_URL = BACKEND_URL.rstrip("/")
 
 # Custom CSS for better styling
 st.markdown("""

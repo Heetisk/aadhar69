@@ -1,13 +1,15 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import requests
 from dotenv import load_dotenv
-load_dotenv()
-from app import models, database
-from app.services import ingestion, analytics, api_fetcher
-from sqlalchemy.orm import Session
-from contextlib import contextmanager
 import os
+
+load_dotenv()
+
+# Backend Configuration
+BACKEND_URL = os.getenv("BACKEND_URL", "https://aadhar69-production.up.railway.app")
+BACKEND_URL = BACKEND_URL.rstrip("/")
 
 # Page configuration
 st.set_page_config(

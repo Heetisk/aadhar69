@@ -15,6 +15,7 @@ def get_model(dataset_type: str):
 
 def get_overall_summary(db: Session, dataset_type: str = "enrolment", state: str = None, district: str = None):
     model, age_cols = get_model(dataset_type)
+    total_val = sum(age_cols)
     
     # Create the aggregation list
     aggregations = [func.sum(col) for col in age_cols]

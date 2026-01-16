@@ -39,7 +39,8 @@ def sync_local_data(
     """
     Sync data from local CSV files in the dataset folder.
     """
-    base_path = r"c:\Users\Heet\Desktop\dataset"
+    # Dynamic path relative to project root
+    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dataset")
     if dataset_type == "enrolment":
         folder = "api_data_aadhar_enrolment"
     elif dataset_type == "demographic":

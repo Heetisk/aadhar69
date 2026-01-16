@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
+from sqlalchemy import func
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,6 +15,39 @@ import os
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="Aadhar Hackathon API")
+
+@app.on_event("startup")
+def auto_sync_datasets():
+    """Automatically sync local datasets on startup if the database is empty."""
+    db = next(database.get_db())
+    try:
+        # Check if database is empty (check any of the tables)
+        for dataset_type in ["enrolment", "demographic", "biometric"]:
+            model, _ = analytics.get_model(dataset_type)
+            count = db.query(func.avg(model.id)).scalar() # Efficient check
+            
+            if count is None: # Table is empty
+                print(f"Auto-syncing {dataset_type} data...")
+                # Reuse the sync logic (refactored into a helper in main.py if needed, 
+                # but for simplicity we can call a simplified version here)
+                base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dataset")
+                folder_map = {
+                    "enrolment": "api_data_aadhar_enrolment",
+                    "demographic": "api_data_aadhar_demographic",
+                    "biometric": "api_data_aadhar_biometric"
+                }
+                
+                dir_path = os.path.join(base_path, folder_map[dataset_type])
+                if os.path.exists(dir_path):
+                    for filename in os.listdir(dir_path):
+                        if filename.endswith(".csv"):
+                            file_path = os.path.join(dir_path, filename)
+                            with open(file_path, "rb") as f:
+                                ingestion.process_csv_and_ingest(f.read(), db, dataset_type=dataset_type)
+    except Exception as e:
+        print(f"Auto-sync failed: {e}")
+    finally:
+        db.close()
 
 @app.post("/upload")
 async def upload_file(

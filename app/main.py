@@ -9,12 +9,22 @@ from .services import ingestion, analytics, api_fetcher
 from typing import List, Optional
 from typing import List, Optional
 
+from fastapi.middleware.cors import CORSMiddleware
 import os
 
 # Create DB tables
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="Aadhar Hackathon API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, replace with your streamlit domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 def auto_sync_datasets():

@@ -1,5 +1,14 @@
-dataset/
-.venv/
-.env
 __pycache__/
 *.pyc
+.venv/
+.env
+dataset/
+app/
+testingdata.csv
+requirements_backend.txt
+server.log
+*.bat
+test_*.py
+verify_*.py
+LICENSE
+README.md
